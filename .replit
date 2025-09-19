@@ -1,0 +1,59 @@
+modules = ["python-3.11", "postgresql-16"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tk", "zlib", "ffmpeg"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Discord Bot"
+
+[[workflows.workflow]]
+name = "Discord Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 3001
+
+[[ports]]
+localPort = 5000
+
+[[ports]]
+localPort = 34029
+externalPort = 80
+
+[[ports]]
+localPort = 41537
+externalPort = 3001
+
+[[ports]]
+localPort = 42301
+externalPort = 3002
+
+[deployment]
+deploymentTarget = "vm"
+run = ["python", "app.py"]
+ignorePorts = true
+
+[agent]
+expertMode = true
+integrations = ["python_database:1.0.0"]

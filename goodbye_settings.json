@@ -1,0 +1,15 @@
+{
+  "1107832291260121218": {
+    "color": 16711680,
+    "title": "Member Left",
+    "message": "**{member_name}** has left **{server_name}**.\n\nWe hope they had a great time with us! 🌟",
+    "channel_id": null,
+    "show_member_info": true,
+    "member_info_fields": {
+      "username": true,
+      "display_name": true,
+      "join_date": true,
+      "member_count": false
+    }
+  }
+}

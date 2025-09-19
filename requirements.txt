@@ -1,0 +1,9 @@
+discord.py==2.4.0
+aiohttp
+requests
+python-dotenv
+flask
+gunicorn
+Pillow
+pytz
+python-dateutil
