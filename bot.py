@@ -144,9 +144,8 @@ class DiscordBot(commands.Bot):
         # Track bot start time for uptime command
         self.start_time = None
     
-    \1
-        await self.load_extension(\"cogs.errors\")
-"""Called when the bot is starting up to setup commands"""
+    async def setup_hook(self):
+        """Called when the bot is starting up to setup commands"""
         logger.info("🔧 Setting up bot commands...")
         
         # Only register commands here (clearing happens in on_ready when guilds are available)
@@ -779,31 +778,6 @@ class DiscordBot(commands.Bot):
         
         return None
     
-    async def on_disconnect(self):
-        """Called when the bot disconnects from Discord"""
-        logger.warning("⚠️ Bot disconnected from Discord!")
-        bot_status['connected'] = False
-    
-    async def on_resumed(self):
-        """Called when the bot resumes connection"""
-        logger.info("✅ Bot resumed connection to Discord!")
-        bot_status['connected'] = True
-    
-    async def heartbeat_loop(self):
-        """Heartbeat loop to maintain connection and log status"""
-        while not self.is_closed():
-            try:
-                await asyncio.sleep(300)  # 5 minutes
-                if self.is_ready():
-                    logger.info(f"💓 Heartbeat: Bot online in {len(self.guilds)} guilds")
-                    bot_status['connected'] = True
-                    bot_status['guilds'] = len(self.guilds)
-                else:
-                    logger.warning("💓 Heartbeat: Bot not ready")
-                    bot_status['connected'] = False
-            except Exception as e:
-                logger.error(f"Heartbeat error: {e}")
-                await asyncio.sleep(60)  # Shorter sleep on error
     
     async def on_command_error(self, ctx, error):
         """Global error handler for commands"""
