@@ -338,30 +338,6 @@ def setup_advanced_features(bot):
                     member = discord.utils.get(interaction.guild.members, name=value)
                 return member
     
-    # ============= HYBRID COMMANDS =============
-    
-    @bot.hybrid_command(name="hybrid_ping", description="Hybrid ping command")
-    async def hybrid_ping(ctx):
-        """Hybrid command that works as both slash and text command"""
-        latency = round(bot.latency * 1000)
-        
-        if hasattr(ctx, 'interaction') and ctx.interaction:
-            # Slash command
-            embed = discord.Embed(
-                title="🏓 Hybrid Pong!",
-                description=f"Latency: {latency}ms\nTriggered via: Slash Command",
-                color=0x00ff00
-            )
-            await ctx.send(embed=embed)
-        else:
-            # Text command
-            embed = discord.Embed(
-                title="🏓 Hybrid Pong!",
-                description=f"Latency: {latency}ms\nTriggered via: Text Command",
-                color=0x0099ff
-            )
-            await ctx.send(embed=embed)
-    
     # ============= COMMAND ERROR HANDLING =============
     
     async def safe_respond(interaction: discord.Interaction, *args, **kwargs):
