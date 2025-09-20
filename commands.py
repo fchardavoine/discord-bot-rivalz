@@ -2981,6 +2981,7 @@ def setup_commands(bot):
             # Process channel mentions
             for channel in ctx.guild.text_channels:
                 if 'rulebook' in channel.name.lower() or 'rule' in channel.name.lower():
+                    interactive_message = interactive_message.replace('#📚-rulebook', f'<#{channel.id}>')
                     interactive_message = interactive_message.replace('#📖-rulebook', f'<#{channel.id}>')
                     interactive_message = interactive_message.replace('#rulebook', f'<#{channel.id}>')
                 elif 'waiting' in channel.name.lower() or 'wait' in channel.name.lower():

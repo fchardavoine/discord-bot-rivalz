@@ -224,7 +224,7 @@ def format_duration(seconds):
         secs = int(seconds % 60)
         return f"{hours}h {minutes}m {secs}s"
 
-async def run_timer(bot, channel, message, duration_seconds, label, user, rotation_users=None, auto_reset=False, existing_view=None):
+async def run_timer(bot, channel, message, duration_seconds, label, user, rotation_users=None, auto_reset=False, role=None, existing_view=None):
     """Run the timer with live updates and rotation support"""
     timer_id = str(message.id)
     active_timers[timer_id] = {'cancelled': False}
@@ -394,7 +394,10 @@ async def run_timer(bot, channel, message, duration_seconds, label, user, rotati
                     try:
                         await message.edit(embed=embed, view=view)
                         # Send final notification
-                        await channel.send(f"🏁 **{label}** rotation is complete! All players have finished their turns.")
+                        final_message = f"🏁 **{label}** rotation is complete! All players have finished their turns."
+                        if role:
+                            final_message = f"{role.mention} {final_message}"
+                        await channel.send(final_message)
                     except:
                         pass
                     return
@@ -440,7 +443,7 @@ async def run_timer(bot, channel, message, duration_seconds, label, user, rotati
                         # Continue timer for next person - pass the updated view to maintain state
                         bot.loop.create_task(run_timer(
                             bot, channel, message, original_duration, label, user, 
-                            view.rotation_users, view.auto_reset, existing_view=view
+                            view.rotation_users, view.auto_reset, role, existing_view=view
                         ))
                         return
                 except:
@@ -463,7 +466,10 @@ async def run_timer(bot, channel, message, duration_seconds, label, user, rotati
             try:
                 await message.edit(embed=embed, view=view)
                 # Send notification
-                await channel.send(f"⏰ {user.mention} Your timer **{label}** has finished!")
+                notification_message = f"⏰ {user.mention} Your timer **{label}** has finished!"
+                if role:
+                    notification_message = f"{role.mention} {notification_message}"
+                await channel.send(notification_message)
             except:
                 pass
     
@@ -609,9 +615,10 @@ def setup_interactive_timer(bot):
     @app_commands.describe(
         duration="Timer duration (e.g., '5m', '1h30m', '45s')",
         users="Users to rotate between (mention them: @user1 @user2 @user3)",
-        label="Optional label for the timer"
+        label="Optional label for the timer",
+        role="Optional role to ping when timer completes"
     )
-    async def rotation_timer(interaction: discord.Interaction, duration: str, users: str, label: str = "Turn Timer"):
+    async def rotation_timer(interaction: discord.Interaction, duration: str, users: str, label: str = "Turn Timer", role: discord.Role = None):
         """Create a rotating timer that automatically tags the next person and resets"""
         
         # Parse duration
@@ -773,7 +780,7 @@ def setup_interactive_timer(bot):
         # Start the turn timer
         bot.loop.create_task(run_timer(
             bot, interaction.channel, message, duration_seconds, label, interaction.user, 
-            rotation_user_ids, True
+            rotation_user_ids, True, role
         ))
     
     print("✅ Interactive timer system loaded successfully!")

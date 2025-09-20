@@ -8,7 +8,7 @@ from discord.ext import commands
 def create_test_embed(member_name="TestUser"):
     embed = discord.Embed(
         title="",
-        description="Hey TestUser!\n\nWelcome to RIVALZ MLB THE SHOW!\n\nThis is a HOF league that offers a unique experience unlike any other. With team building, free agency, fixed schedules, league leader awards, and intense competition, it's designed for those who want more than just to play baseball. Please consult the #📖-rulebook channel for detailed information about our league, and let us know in the #⏳-waiting-area channel if you would like to join.",
+        description="Hey TestUser!\n\nWelcome to RIVALZ MLB THE SHOW!\n\nThis is a HOF league that offers a unique experience unlike any other. With team building, free agency, fixed schedules, league leader awards, and intense competition, it's designed for those who want more than just to play baseball. Please consult the #📚-rulebook channel for detailed information about our league, and let us know in the #⏳-waiting-area channel if you would like to join.",
         color=0x57F287,  # Green left border
     )
     
