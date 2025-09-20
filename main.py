@@ -9,6 +9,7 @@ import sys
 import logging
 import asyncio
 import discord
+from bot_monitor import notify_starting, notify_online, notify_offline, notify_failed, is_monitoring_enabled
 
 # Configure logging for deployment
 logging.basicConfig(
@@ -26,6 +27,10 @@ async def start_discord_bot():
     while retry_count < max_retries:
         try:
             logger.info(f"🤖 Initializing Discord bot (attempt {retry_count + 1}/{max_retries})...")
+            
+            # Notify monitoring system of startup attempt
+            if retry_count == 0:
+                await notify_starting(0)
             
             # Import bot components
             from bot import DiscordBot
@@ -52,6 +57,7 @@ async def start_discord_bot():
             return False  # Fatal error
         except discord.ConnectionClosed:
             logger.warning("Discord connection closed, attempting to reconnect...")
+            await notify_offline("Discord connection closed", retry_count + 1)
             retry_count += 1
             await asyncio.sleep(5)  # Wait before retry
         except Exception as e:
@@ -78,6 +84,10 @@ def main():
     while restart_count < max_restarts:
         try:
             logger.info(f"🚀 Starting bot (restart #{restart_count})")
+            
+            # Notify of restart attempt if not first start  
+            if restart_count > 0:
+                asyncio.run(notify_starting(restart_count))
             
             # Run Discord bot and check result
             result = asyncio.run(start_discord_bot())
@@ -107,6 +117,7 @@ def main():
         except BaseException as e:
             restart_count += 1
             logger.exception(f"💥 Bot crashed: {e}")
+            asyncio.run(notify_offline(f"Bot crashed: {str(e)[:100]}", restart_count))
         
         # Handle restart logic (only reached on crashes)
         if restart_count >= max_restarts:
@@ -125,6 +136,11 @@ def main():
         sys.exit(0)
     else:
         logger.error("❌ Bot failed after maximum restart attempts")
+        # Notify of final failure
+        try:
+            asyncio.run(notify_failed(restart_count))
+        except:
+            pass  # Don't let notification failures prevent exit
         sys.exit(1)
 
 if __name__ == '__main__':
