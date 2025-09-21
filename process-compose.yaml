@@ -1,0 +1,22 @@
+version: "0.5"
+
+processes:
+  discord-bot:
+    command: "python main.py"
+    working_dir: "."
+    environment:
+      - "PYTHONUNBUFFERED=1"
+    availability:
+      restart: "always"
+      backoff_seconds: 5
+      max_restarts: 500
+    healthcheck:
+      test: "pgrep -f 'python main.py' > /dev/null || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    log_file: "/tmp/discord-bot.log"
+
+log_level: info
+is_strict: false
