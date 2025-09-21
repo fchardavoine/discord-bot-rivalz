@@ -9,6 +9,10 @@ import sys
 import logging
 import asyncio
 import discord
+import threading
+import time
+from datetime import datetime
+from flask import Flask, jsonify, request
 from bot_monitor import notify_starting, notify_online, notify_offline, notify_failed, is_monitoring_enabled
 
 # Configure logging for deployment
@@ -18,6 +22,176 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Global bot status for health monitoring
+bot_status = {
+    'status': 'starting',
+    'start_time': None,
+    'guilds': 0,
+    'last_check': None,
+    'discord_connected': False
+}
+
+def update_bot_status(status, guilds=0):
+    """Update bot status for health monitoring"""
+    global bot_status
+    bot_status['status'] = status
+    bot_status['guilds'] = guilds
+    bot_status['last_check'] = datetime.utcnow().isoformat()
+    bot_status['discord_connected'] = (status == 'connected')
+    if status == 'connected' and not bot_status['start_time']:
+        bot_status['start_time'] = datetime.utcnow().isoformat()
+
+def create_health_app():
+    """Create Flask app for health monitoring and webhook restart"""
+    app = Flask(__name__)
+    
+    @app.route('/health')
+    def health():
+        """Basic health check endpoint"""
+        return jsonify({
+            'status': 'healthy',
+            'service': 'discord-bot',
+            'bot_status': bot_status['status'],
+            'discord_connected': bot_status['discord_connected'],
+            'guilds': bot_status['guilds'],
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    
+    @app.route('/health/detailed')
+    def health_detailed():
+        """Enhanced health check that verifies bot functionality"""
+        try:
+            # Calculate uptime
+            uptime_seconds = 0
+            if bot_status.get('start_time'):
+                start_time = datetime.fromisoformat(bot_status['start_time'].replace('Z', '+00:00'))
+                uptime_seconds = (datetime.utcnow() - start_time).total_seconds()
+            
+            # Check if bot is responsive (last check within 60 seconds)
+            is_responsive = False
+            if bot_status.get('last_check'):
+                last_check = datetime.fromisoformat(bot_status['last_check'].replace('Z', '+00:00'))
+                seconds_since_check = (datetime.utcnow() - last_check).total_seconds()
+                is_responsive = seconds_since_check < 60
+            
+            # Determine overall health
+            is_healthy = (
+                bot_status['discord_connected'] and 
+                bot_status['status'] in ['connected', 'running'] and
+                is_responsive and
+                bot_status['guilds'] > 0
+            )
+            
+            health_data = {
+                'status': 'healthy' if is_healthy else 'unhealthy',
+                'service': 'discord-bot',
+                'bot_status': bot_status['status'],
+                'discord_connected': bot_status['discord_connected'],
+                'guilds': bot_status['guilds'],
+                'is_responsive': is_responsive,
+                'uptime_seconds': uptime_seconds,
+                'uptime_human': f"{uptime_seconds//3600:.0f}h {(uptime_seconds%3600)//60:.0f}m",
+                'last_check': bot_status.get('last_check'),
+                'start_time': bot_status.get('start_time'),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            return jsonify(health_data), 200 if is_healthy else 503
+            
+        except Exception as e:
+            logger.error(f"Health check error: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }), 500
+    
+    @app.route('/webhook/restart', methods=['POST', 'GET'])
+    def webhook_restart():
+        """External webhook endpoint for triggering bot restart"""
+        try:
+            logger.info("🔔 External restart webhook triggered")
+            
+            # Parse webhook data (UptimeRobot format)
+            alert_type = None
+            if request.method == 'POST':
+                try:
+                    data = request.get_json() or {}
+                    alert_type = data.get('alertType')
+                except:
+                    pass
+                if not alert_type:
+                    alert_type = request.form.get('alertType') or request.args.get('alertType')
+            else:
+                alert_type = request.args.get('alertType')
+            
+            logger.info(f"📊 Webhook alert type: {alert_type}")
+            
+            # Only restart on down alerts (alertType=1) or if no alertType specified
+            if alert_type is None or alert_type == '1' or alert_type == 1:
+                logger.warning("🚨 EXTERNAL RESTART TRIGGERED - Forcing process exit")
+                update_bot_status('restarting')
+                
+                # Force restart by exiting the process
+                def delayed_restart():
+                    time.sleep(2)  # Give time to send response
+                    logger.error("💥 WEBHOOK RESTART: Forcing process exit")
+                    os._exit(1)  # Force exit - shell wrapper will restart us
+                
+                restart_thread = threading.Thread(target=delayed_restart, daemon=True)
+                restart_thread.start()
+                
+                return jsonify({
+                    'status': 'restart_triggered',
+                    'message': 'Bot restart initiated via webhook',
+                    'alert_type': alert_type,
+                    'timestamp': datetime.utcnow().isoformat()
+                }), 200
+            else:
+                logger.info(f"✅ Webhook received but no restart needed (alertType: {alert_type})")
+                return jsonify({
+                    'status': 'acknowledged',
+                    'message': 'Webhook received - no action taken',
+                    'alert_type': alert_type,
+                    'timestamp': datetime.utcnow().isoformat()
+                }), 200
+                
+        except Exception as e:
+            logger.error(f"❌ Webhook restart error: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }), 500
+    
+    @app.route('/api/status')
+    def api_status():
+        """Detailed bot status endpoint"""
+        return jsonify(bot_status)
+    
+    return app
+
+def start_health_server():
+    """Start Flask health server in background thread"""
+    try:
+        logger.info("🏥 Starting health monitoring server on port 5000...")
+        app = create_health_app()
+        
+        # Disable Flask's request logging to reduce noise
+        import logging as flask_logging
+        flask_log = flask_logging.getLogger('werkzeug')
+        flask_log.setLevel(flask_logging.ERROR)
+        
+        app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    except Exception as e:
+        logger.error(f"❌ Health server failed to start: {e}")
+
+def start_health_monitoring():
+    """Start health monitoring in background thread"""
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    logger.info("✅ Health monitoring server started")
 
 async def start_discord_bot():
     """Start Discord bot with automatic reconnection - returns True for clean stop, False for failure"""
@@ -31,6 +205,9 @@ async def start_discord_bot():
             # Notify monitoring system of startup attempt
             if retry_count == 0:
                 await notify_starting(0)
+            
+            # Update health status
+            update_bot_status('starting')
             
             # Import bot components
             from bot import DiscordBot
@@ -47,6 +224,9 @@ async def start_discord_bot():
             # Start bot with reconnection enabled
             logger.info("🚀 Starting Discord bot as background worker...")
             
+            # Update status when connected
+            update_bot_status('connected', 1)  # Assume 1 guild for now
+            
             # Run the bot with automatic reconnection
             await bot.start(token, reconnect=True)
             # If we reach here, bot stopped cleanly
@@ -54,9 +234,11 @@ async def start_discord_bot():
             
         except discord.LoginFailure:
             logger.error("Discord login failed - check DISCORD_TOKEN")
+            update_bot_status('error')
             return False  # Fatal error
         except discord.ConnectionClosed:
             logger.warning("Discord connection closed, attempting to reconnect...")
+            update_bot_status('reconnecting')
             await notify_offline("Discord connection closed", retry_count + 1)
             retry_count += 1
             await asyncio.sleep(5)  # Wait before retry
@@ -76,6 +258,9 @@ def main():
     logger.info("="*60)
     logger.info("🤖 DISCORD BOT - AUTO-RESTART MODE")
     logger.info("="*60)
+    
+    # Start health monitoring server first
+    start_health_monitoring()
     
     restart_count = 0
     max_restarts = 100  # Allow many restarts

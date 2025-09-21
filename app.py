@@ -134,8 +134,10 @@ def home():
             <div class="endpoints">
                 <h3>API Endpoints</h3>
                 <div class="endpoint">GET / - This status page</div>
-                <div class="endpoint">GET /health - Health check for deployment</div>
+                <div class="endpoint">GET /health - Basic health check</div>
+                <div class="endpoint">GET /health/detailed - Comprehensive health check</div>
                 <div class="endpoint">GET /api/status - Detailed bot status JSON</div>
+                <div class="endpoint">POST /webhook/restart - External restart webhook</div>
             </div>
             
             <div class="info">
@@ -170,6 +172,138 @@ def api_status():
 def ping():
     """Simple ping endpoint"""
     return jsonify({'message': 'pong', 'timestamp': datetime.utcnow().isoformat()})
+
+@app.route('/webhook/restart', methods=['POST', 'GET'])
+def webhook_restart():
+    """External webhook endpoint for triggering bot restart"""
+    try:
+        # Log the restart request
+        logger.info("🔔 External restart webhook triggered")
+        
+        # Check if this is an UptimeRobot webhook
+        alert_type = None
+        monitor_id = None
+        
+        if request.method == 'POST':
+            # Try JSON first
+            try:
+                data = request.get_json() or {}
+                alert_type = data.get('alertType')
+                monitor_id = data.get('monitorID')
+            except:
+                pass
+            
+            # Try form data if JSON fails
+            if not alert_type:
+                alert_type = request.form.get('alertType') or request.args.get('alertType')
+                monitor_id = request.form.get('monitorID') or request.args.get('monitorID')
+        else:
+            # GET request - check query parameters
+            alert_type = request.args.get('alertType')
+            monitor_id = request.args.get('monitorID')
+        
+        logger.info(f"📊 Webhook data - Alert Type: {alert_type}, Monitor ID: {monitor_id}")
+        
+        # Only restart on down alerts (alertType=1) or if no alertType specified
+        if alert_type is None or alert_type == '1' or alert_type == 1:
+            logger.warning("🚨 EXTERNAL RESTART TRIGGERED - Forcing process restart")
+            
+            # Update status
+            update_bot_status('restarting')
+            
+            # Force restart the entire process after a brief delay
+            import threading
+            import time
+            
+            def delayed_restart():
+                time.sleep(2)  # Give time to send response
+                logger.error("💥 WEBHOOK RESTART: Forcing process exit for external restart")
+                import os
+                os._exit(1)  # Force exit - should trigger workflow restart
+            
+            restart_thread = threading.Thread(target=delayed_restart, daemon=True)
+            restart_thread.start()
+            
+            return jsonify({
+                'status': 'restart_triggered',
+                'message': 'Bot restart initiated via webhook',
+                'alert_type': alert_type,
+                'monitor_id': monitor_id,
+                'timestamp': datetime.utcnow().isoformat()
+            }), 200
+        else:
+            # Up alert or other - just acknowledge
+            logger.info(f"✅ Webhook received but no restart needed (alertType: {alert_type})")
+            return jsonify({
+                'status': 'acknowledged',
+                'message': 'Webhook received - no action taken',
+                'alert_type': alert_type,
+                'timestamp': datetime.utcnow().isoformat()
+            }), 200
+            
+    except Exception as e:
+        logger.error(f"❌ Webhook restart error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 500
+
+@app.route('/health/detailed')
+def health_detailed():
+    """Enhanced health check that actually verifies bot functionality"""
+    try:
+        # Calculate uptime
+        uptime_seconds = 0
+        if bot_status.get('start_time'):
+            start_time = datetime.fromisoformat(bot_status['start_time'].replace('Z', '+00:00'))
+            uptime_seconds = (datetime.utcnow() - start_time).total_seconds()
+        
+        # Check if bot is actually responsive (last check within 60 seconds)
+        is_responsive = False
+        if bot_status.get('last_check'):
+            last_check = datetime.fromisoformat(bot_status['last_check'].replace('Z', '+00:00'))
+            seconds_since_check = (datetime.utcnow() - last_check).total_seconds()
+            is_responsive = seconds_since_check < 60
+        
+        # Determine overall health
+        is_healthy = (
+            bot_status['discord_connected'] and 
+            bot_status['status'] in ['connected', 'running'] and
+            is_responsive and
+            bot_status['guilds'] > 0
+        )
+        
+        health_data = {
+            'status': 'healthy' if is_healthy else 'unhealthy',
+            'service': 'discord-bot',
+            'bot_status': bot_status['status'],
+            'discord_connected': bot_status['discord_connected'],
+            'guilds': bot_status['guilds'],
+            'is_responsive': is_responsive,
+            'uptime_seconds': uptime_seconds,
+            'uptime_human': f"{uptime_seconds//3600:.0f}h {(uptime_seconds%3600)//60:.0f}m",
+            'last_check': bot_status.get('last_check'),
+            'start_time': bot_status.get('start_time'),
+            'timestamp': datetime.utcnow().isoformat(),
+            'endpoints': {
+                'health': '/health',
+                'detailed_health': '/health/detailed', 
+                'status': '/api/status',
+                'restart_webhook': '/webhook/restart'
+            }
+        }
+        
+        # Return appropriate HTTP status
+        return jsonify(health_data), 200 if is_healthy else 503
+        
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 500
 
 async def start_discord_bot():
     """Start Discord bot in background thread"""
