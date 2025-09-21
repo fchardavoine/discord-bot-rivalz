@@ -358,13 +358,14 @@ class DiscordBot(commands.Bot):
                     import sys
                     if 'main' in sys.modules:
                         main_module = sys.modules['main']
-                        if hasattr(main_module, 'heartbeat_update'):
-                            # Call the heartbeat update function
-                            main_module.heartbeat_update()
                         if hasattr(main_module, 'bot_status'):
+                            from datetime import datetime
+                            # Direct update to bot_status
                             main_module.bot_status['status'] = 'connected'
                             main_module.bot_status['guilds'] = len(self.guilds)
                             main_module.bot_status['discord_connected'] = True
+                            main_module.bot_status['last_check'] = datetime.utcnow().isoformat()
+                            main_module.bot_status['last_heartbeat'] = datetime.utcnow().isoformat()
                 except Exception as e:
                     # Fallback - direct update without logging
                     pass
