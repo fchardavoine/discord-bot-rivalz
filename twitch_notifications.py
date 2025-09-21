@@ -556,15 +556,29 @@ def setup_twitch_notifications(bot):
             await interaction.response.send_message(f"❌ Failed to remove streamer: {e}", ephemeral=True)
     
     @twitch_group.command(name="edit", description="Edit settings for an existing Twitch streamer")
-    async def edit_streamer(interaction: discord.Interaction):
+    @app_commands.describe(
+        streamer="Twitch username to edit (optional, leave blank to see list)",
+        channel="New Discord channel for notifications (optional)",
+        message="New custom notification message (optional, leave blank to remove)",
+        games="New game filter list (comma-separated, leave blank to remove filter)"
+    )
+    async def edit_streamer(interaction: discord.Interaction, streamer: Optional[str] = None, channel: Optional[discord.TextChannel] = None, message: Optional[str] = None, games: Optional[str] = None):
         """Edit settings for an existing Twitch streamer"""
         
         # Check if user has manage guild permissions (must be a Member in a guild)
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             return await interaction.response.send_message("❌ You need `Manage Server` permission to manage Twitch notifications!", ephemeral=True)
         
-        # Always show the interactive picker
-        return await show_streamer_list_for_edit(interaction)
+        # If no streamer specified, show the interactive picker
+        if not streamer:
+            return await show_streamer_list_for_edit(interaction)
+        
+        # If streamer specified but no other parameters, show error
+        if not channel and message is None and games is None:
+            return await interaction.response.send_message("❌ You must specify at least one thing to edit (channel, message, or games)!", ephemeral=True)
+        
+        # Handle direct parameter editing
+        return await handle_edit_action(interaction, streamer, channel, message, games)
     
     @twitch_group.command(name="list", description="List all watched Twitch streamers")
     async def list_streamers(interaction: discord.Interaction):
@@ -1309,7 +1323,7 @@ def setup_twitch_notifications(bot):
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to remove streamer: {e}", ephemeral=True)
 
-    async def handle_edit_action(interaction: discord.Interaction, streamer: Optional[str], channel: Optional[discord.TextChannel], message: Optional[str]):
+    async def handle_edit_action(interaction: discord.Interaction, streamer: Optional[str], channel: Optional[discord.TextChannel], message: Optional[str], games: Optional[str] = None):
         """Handle edit action"""
         if not streamer:
             return await interaction.response.send_message("❌ You must specify a streamer name to edit!", ephemeral=True)
@@ -1318,8 +1332,8 @@ def setup_twitch_notifications(bot):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             return await interaction.response.send_message("❌ You need `Manage Server` permission to edit Twitch streamers!", ephemeral=True)
 
-        if not channel and not message:
-            return await interaction.response.send_message("❌ You must specify at least one thing to edit (channel or message)!", ephemeral=True)
+        if not channel and message is None and games is None:
+            return await interaction.response.send_message("❌ You must specify at least one thing to edit (channel, message, or games)!", ephemeral=True)
             
         streamer = streamer.lower()
         
@@ -1329,7 +1343,7 @@ def setup_twitch_notifications(bot):
                 with db.engine.connect() as connection:
                     # Check if streamer exists
                     result = connection.execute(text('''
-                        SELECT channel_id, custom_message FROM twitch_streamers 
+                        SELECT channel_id, custom_message, filtered_games FROM twitch_streamers 
                         WHERE guild_id = :guild_id AND streamer_name = :streamer_name
                     '''), {
                         'guild_id': interaction.guild.id,
@@ -1344,16 +1358,28 @@ def setup_twitch_notifications(bot):
                     new_channel_id = channel.id if channel else current[0]
                     new_message = message if message is not None else current[1]
                     
+                    # Process games filter
+                    new_filtered_games = current[2]  # Keep existing if not specified
+                    if games is not None:
+                        if games.strip():
+                            # Clean and format games list
+                            games_list = [game.strip() for game in games.split(',') if game.strip()]
+                            new_filtered_games = ','.join(games_list) if games_list else None
+                        else:
+                            # Empty string means remove filter
+                            new_filtered_games = None
+                    
                     # Update streamer
                     connection.execute(text('''
                         UPDATE twitch_streamers 
-                        SET channel_id = :channel_id, custom_message = :custom_message
+                        SET channel_id = :channel_id, custom_message = :custom_message, filtered_games = :filtered_games
                         WHERE guild_id = :guild_id AND streamer_name = :streamer_name
                     '''), {
                         'guild_id': interaction.guild.id,
                         'streamer_name': streamer,
                         'channel_id': new_channel_id,
-                        'custom_message': new_message
+                        'custom_message': new_message,
+                        'filtered_games': new_filtered_games
                     })
                     connection.commit()
 
@@ -1367,6 +1393,11 @@ def setup_twitch_notifications(bot):
                 embed.add_field(name="📢 New Channel", value=channel.mention, inline=True)
             if message is not None:
                 embed.add_field(name="💬 New Message", value=message if message else "*Removed custom message*", inline=False)
+            if games is not None:
+                if new_filtered_games:
+                    embed.add_field(name="🎮 Game Filter", value=new_filtered_games.replace(',', ', '), inline=False)
+                else:
+                    embed.add_field(name="🎮 Game Filter", value="*Removed game filter (all games)*", inline=False)
             
             await interaction.response.send_message(embed=embed)
             
