@@ -211,16 +211,27 @@ def create_health_app():
             repl_deploy_log = f"repl.deploy{json.dumps(request_body)}{signature}"
             print(repl_deploy_log, flush=True)
             
-            # Read daemon response from stdin (this would be handled by repl.deploy daemon)
-            # For now, just acknowledge the request
             logger.info("🔄 repl.deploy refresh triggered - GitHub deployment restart initiated")
             
             # Signal success to repl.deploy daemon
             print("repl.deploy-success", flush=True)
             
+            # Schedule restart after sending response
+            def delayed_restart():
+                import time
+                import os
+                time.sleep(2)  # Give time for response to be sent
+                logger.info("🔄 Restarting process after repl.deploy refresh...")
+                os._exit(1)  # Exit with code 1 to trigger restart wrapper
+            
+            import threading
+            restart_thread = threading.Thread(target=delayed_restart)
+            restart_thread.daemon = True
+            restart_thread.start()
+            
             return jsonify({
                 'status': 'success',
-                'message': 'Deployment refresh triggered',
+                'message': 'Deployment refresh triggered - restarting process',
                 'timestamp': datetime.utcnow().isoformat()
             }), 200
             
