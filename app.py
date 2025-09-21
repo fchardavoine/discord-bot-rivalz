@@ -179,10 +179,8 @@ async def start_discord_bot():
         
         # Import Discord bot modules  
         import main
-        # Pass the update function to main if it exists
-        if hasattr(main, 'update_bot_status'):
-            main.update_bot_status = update_bot_status
-        await main.start_discord_bot_only()
+        # Start the Discord bot using the correct function
+        await main.start_discord_bot()
         
     except Exception as e:
         logger.error(f"Failed to start Discord bot: {e}")
