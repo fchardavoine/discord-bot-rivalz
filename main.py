@@ -29,7 +29,8 @@ bot_status = {
     'start_time': None,
     'guilds': 0,
     'last_check': None,
-    'discord_connected': False
+    'discord_connected': False,
+    'last_heartbeat': None
 }
 
 def update_bot_status(status, guilds=0):
@@ -38,9 +39,16 @@ def update_bot_status(status, guilds=0):
     bot_status['status'] = status
     bot_status['guilds'] = guilds
     bot_status['last_check'] = datetime.utcnow().isoformat()
+    bot_status['last_heartbeat'] = datetime.utcnow().isoformat()
     bot_status['discord_connected'] = (status == 'connected')
     if status == 'connected' and not bot_status['start_time']:
         bot_status['start_time'] = datetime.utcnow().isoformat()
+
+def heartbeat_update():
+    """Update heartbeat timestamp - called by bot heartbeat loop"""
+    global bot_status
+    bot_status['last_check'] = datetime.utcnow().isoformat()
+    bot_status['last_heartbeat'] = datetime.utcnow().isoformat()
 
 def create_health_app():
     """Create Flask app for health monitoring and webhook restart"""
