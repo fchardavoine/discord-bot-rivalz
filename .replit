@@ -2,7 +2,7 @@ modules = ["python-3.11", "postgresql-16"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["ffmpeg", "freetype", "lcms2", "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tk", "zlib", "process-compose"]
+packages = ["ffmpeg", "freetype", "lcms2", "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", "libxcrypt", "openjpeg", "process-compose", "tcl", "tk", "zlib"]
 
 [workflows]
 runButton = "Project"
@@ -64,4 +64,4 @@ ignorePorts = true
 
 [agent]
 expertMode = true
-integrations = ["python_database:1.0.0"]
+integrations = ["python_database:1.0.0", "github:1.0.0"]
