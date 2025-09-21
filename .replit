@@ -25,7 +25,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "process-compose up -D"
+args = "bash restart_bot.sh"
 
 [[ports]]
 localPort = 3000
