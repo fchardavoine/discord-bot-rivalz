@@ -1432,7 +1432,7 @@ def setup_twitch_notifications(bot):
                 with app.app_context():
                     with db.engine.connect() as connection:
                         result = connection.execute(text('''
-                            SELECT channel_id, custom_message, is_live, paused
+                            SELECT channel_id, custom_message, is_live, paused, filtered_games
                             FROM twitch_streamers 
                             WHERE guild_id = :guild_id AND streamer_name = :streamer_name
                         '''), {
@@ -1444,7 +1444,7 @@ def setup_twitch_notifications(bot):
                         if not streamer_data:
                             return await interaction.response.send_message("❌ Streamer not found!", ephemeral=True)
                         
-                        channel_id, custom_message, is_live, paused = streamer_data
+                        channel_id, custom_message, is_live, paused, filtered_games = streamer_data
                         
                 # Get current channel info
                 channel = None
@@ -1460,28 +1460,31 @@ def setup_twitch_notifications(bot):
                 else:
                     status = "⚫ OFFLINE"
                 
+                # Format game filter info
+                games_display = filtered_games.replace(',', ', ') if filtered_games else "*All games*"
+                
                 # Create edit interface
                 edit_embed = discord.Embed(
                     title=f"✏️ Editing: {selected_streamer.title()}",
-                    description=f"**Status:** {status}\n**Current Channel:** {channel_name}\n**Custom Message:** {custom_message or '*None set*'}",
+                    description=f"**Status:** {status}\n**Current Channel:** {channel_name}\n**Custom Message:** {custom_message or '*None set*'}\n**Game Filter:** {games_display}",
                     color=0x4ECDC4,
                     url=f"https://twitch.tv/{selected_streamer}"
                 )
                 
                 edit_embed.add_field(
                     name="🎛️ Quick Edit Options",
-                    value="• **Change Channel** - Select a new notification channel\n• **Edit Message** - Update or remove custom message\n• **Advanced** - Use command for both channel + message",
+                    value="• **Change Channel** - Select a new notification channel\n• **Edit Message** - Update or remove custom message\n• **Change Games** - Set game filters for notifications\n• **Advanced** - Use command for multiple options",
                     inline=False
                 )
                 
                 edit_embed.add_field(
                     name="💻 Advanced Command",
-                    value=f"`/twitch edit streamer:{selected_streamer} channel:#channel message:text`",
+                    value=f"`/twitch edit streamer:{selected_streamer} channel:#channel message:text games:Fortnite,Valorant`",
                     inline=False
                 )
                 
                 # Create edit view with buttons
-                edit_view = StreamerEditOptionsView(self.guild_id, selected_streamer, channel_id, custom_message)
+                edit_view = StreamerEditOptionsView(self.guild_id, selected_streamer, channel_id, custom_message, filtered_games)
                 
                 # Update the message with edit interface
                 await interaction.response.edit_message(embed=edit_embed, view=edit_view)
@@ -1491,12 +1494,13 @@ def setup_twitch_notifications(bot):
 
     class StreamerEditOptionsView(discord.ui.View):
         """Interactive buttons for editing streamer settings"""
-        def __init__(self, guild_id: int, streamer_name: str, current_channel_id: int, current_message: str):
+        def __init__(self, guild_id: int, streamer_name: str, current_channel_id: int, current_message: str, current_filtered_games: Optional[str] = None):
             super().__init__(timeout=300)
             self.guild_id = guild_id
             self.streamer_name = streamer_name
             self.current_channel_id = current_channel_id
             self.current_message = current_message
+            self.current_filtered_games = current_filtered_games
             
         @discord.ui.button(label="Change Channel", style=discord.ButtonStyle.primary, emoji="📺")
         async def change_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1570,6 +1574,12 @@ def setup_twitch_notifications(bot):
             """Show message edit modal"""
             modal = MessageEditModal(self.guild_id, self.streamer_name, self.current_message)
             await interaction.response.send_modal(modal)
+            
+        @discord.ui.button(label="Change Games", style=discord.ButtonStyle.success, emoji="🎮")
+        async def change_games(self, interaction: discord.Interaction, button: discord.ui.Button):
+            """Show games edit modal"""
+            modal = GamesEditModal(self.guild_id, self.streamer_name, self.current_filtered_games)
+            await interaction.response.send_modal(modal)
 
     class MessageEditModal(discord.ui.Modal, title="Edit Custom Message"):
         """Modal for editing custom notification messages"""
@@ -1614,6 +1624,61 @@ def setup_twitch_notifications(bot):
                 
             success_embed = discord.Embed(
                 title="✅ Message Updated",
+                description=description,
+                color=0x00ff00
+            )
+            await interaction.response.edit_message(embed=success_embed, view=None)
+
+    class GamesEditModal(discord.ui.Modal, title="Edit Game Filter"):
+        """Modal for editing game filter"""
+        def __init__(self, guild_id: int, streamer_name: str, current_filtered_games: Optional[str]):
+            super().__init__()
+            self.guild_id = guild_id
+            self.streamer_name = streamer_name
+            
+            self.games_input = discord.ui.TextInput(
+                label="Game Filter (comma-separated)",
+                placeholder="Fortnite, Valorant, Apex Legends (leave empty to remove filter)",
+                default=current_filtered_games.replace(',', ', ') if current_filtered_games else "",
+                required=False,
+                max_length=300,
+                style=discord.TextStyle.short
+            )
+            self.add_item(self.games_input)
+            
+        async def on_submit(self, interaction: discord.Interaction):
+            games_input = self.games_input.value.strip() if self.games_input.value else ""
+            
+            # Process games filter
+            new_filtered_games = None
+            if games_input:
+                # Clean and format games list
+                games_list = [game.strip() for game in games_input.split(',') if game.strip()]
+                new_filtered_games = ','.join(games_list) if games_list else None
+            
+            # Update database
+            from db_app import db, app
+            with app.app_context():
+                with db.engine.connect() as connection:
+                    connection.execute(text('''
+                        UPDATE twitch_streamers 
+                        SET filtered_games = :filtered_games
+                        WHERE guild_id = :guild_id AND streamer_name = :streamer_name
+                    '''), {
+                        'filtered_games': new_filtered_games,
+                        'guild_id': self.guild_id,
+                        'streamer_name': self.streamer_name
+                    })
+                    connection.commit()
+            
+            # Create success response
+            if new_filtered_games:
+                description = f"**{self.streamer_name}** will now only notify for:\n\n🎮 {new_filtered_games.replace(',', ', ')}"
+            else:
+                description = f"**{self.streamer_name}** game filter removed. Will notify for all games."
+                
+            success_embed = discord.Embed(
+                title="✅ Game Filter Updated",
                 description=description,
                 color=0x00ff00
             )
