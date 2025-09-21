@@ -83,6 +83,12 @@ class TwitchNotifications:
                         ADD COLUMN IF NOT EXISTS paused BOOLEAN DEFAULT FALSE
                     '''))
                     
+                    # Add filtered_games column for game filtering (schema safety)
+                    connection.execute(text('''
+                        ALTER TABLE twitch_streamers 
+                        ADD COLUMN IF NOT EXISTS filtered_games TEXT
+                    '''))
+                    
                     connection.commit()
                 
                 db.session.commit()
@@ -285,9 +291,9 @@ class TwitchNotifications:
             from db_app import db, app
             with app.app_context():
                 with db.engine.connect() as connection:
-                    # Get all streamers from database including pause status
+                    # Get all streamers from database including pause status and game filters
                     result = connection.execute(text('''
-                        SELECT guild_id, channel_id, streamer_name, streamer_id, is_live, custom_message, last_notification, paused
+                        SELECT guild_id, channel_id, streamer_name, streamer_id, is_live, custom_message, last_notification, paused, filtered_games
                         FROM twitch_streamers
                     '''))
                     streamers = result.fetchall()
@@ -298,7 +304,7 @@ class TwitchNotifications:
             logger.info(f"🔍 Checking {len(streamers)} streamers for live status...")
             
             # Check each streamer
-            for guild_id, channel_id, streamer_name, streamer_id, is_live, custom_message, last_notification, streamer_paused in streamers:
+            for guild_id, channel_id, streamer_name, streamer_id, is_live, custom_message, last_notification, streamer_paused, filtered_games in streamers:
                 try:
                     # Get current stream status
                     stream_info = await self.get_stream_info(streamer_id)
@@ -311,11 +317,36 @@ class TwitchNotifications:
                         if streamer_paused:
                             logger.info(f"⏸️ STREAMER PAUSED: {streamer_name} went live but this streamer is paused")
                         else:
-                            # Streamer just went live - send notification
-                            logger.info(f"🔴 DETECTED: {streamer_name} just went live!")
-                            if user_info:
-                                await self.send_notification(user_info, stream_info, guild_id, channel_id, custom_message)
-                                logger.info(f"✅ NOTIFICATION SENT: {streamer_name} in {(time.time() - start_time):.1f}s")
+                            # Check game filters before sending notification
+                            current_game = stream_info.get('game_name', '').strip()
+                            should_notify = True
+                            
+                            if filtered_games:
+                                # Parse filtered games list
+                                filtered_list = [game.strip().lower() for game in filtered_games.split(',') if game.strip()]
+                                current_game_lower = current_game.lower()
+                                
+                                # Guard against empty game names - never notify for empty games when filters exist
+                                if not current_game.strip():
+                                    should_notify = False
+                                    logger.info(f"🎮 GAME FILTER: {streamer_name} is live but no game specified (empty) - filtering out")
+                                else:
+                                    # Check if current game matches any filtered game (exact match or filtered game is substring of current)
+                                    should_notify = any(
+                                        current_game_lower == filtered_game or 
+                                        filtered_game in current_game_lower
+                                        for filtered_game in filtered_list
+                                    )
+                                
+                                if not should_notify:
+                                    logger.info(f"🎮 GAME FILTER: {streamer_name} is live playing '{current_game}' but only watching for: {filtered_games}")
+                            
+                            if should_notify:
+                                # Streamer just went live with matching game - send notification
+                                logger.info(f"🔴 DETECTED: {streamer_name} just went live playing '{current_game}'!")
+                                if user_info:
+                                    await self.send_notification(user_info, stream_info, guild_id, channel_id, custom_message)
+                                    logger.info(f"✅ NOTIFICATION SENT: {streamer_name} in {(time.time() - start_time):.1f}s")
                     
                     elif not stream_info and is_live:
                         # Streamer went offline - update database
@@ -399,9 +430,10 @@ def setup_twitch_notifications(bot):
     @app_commands.describe(
         streamer="Twitch username to watch",
         channel="Discord channel for notifications (optional, defaults to current)",
-        message="Custom notification message (optional)"
+        message="Custom notification message (optional)",
+        games="Specific games to notify for (comma-separated, leave blank for all games)"
     )
-    async def add_streamer(interaction: discord.Interaction, streamer: str, channel: Optional[discord.TextChannel] = None, message: Optional[str] = None):
+    async def add_streamer(interaction: discord.Interaction, streamer: str, channel: Optional[discord.TextChannel] = None, message: Optional[str] = None, games: Optional[str] = None):
         """Add a Twitch streamer to watch for live notifications"""
         
         # Check if user has manage guild permissions (must be a Member in a guild)
@@ -419,20 +451,29 @@ def setup_twitch_notifications(bot):
             if not streamer_id:
                 return await interaction.followup.send(f"❌ Twitch user `{streamer}` not found!", ephemeral=True)
             
+            # Process games filter
+            filtered_games = None
+            if games:
+                # Clean and format games list
+                games_list = [game.strip() for game in games.split(',') if game.strip()]
+                if games_list:
+                    filtered_games = ','.join(games_list)
+            
             # Add to database
             from db_app import db, app
             with app.app_context():
                 try:
                     with db.engine.connect() as connection:
                         connection.execute(text('''
-                            INSERT INTO twitch_streamers (guild_id, channel_id, streamer_name, streamer_id, custom_message)
-                            VALUES (:guild_id, :channel_id, :streamer_name, :streamer_id, :custom_message)
+                            INSERT INTO twitch_streamers (guild_id, channel_id, streamer_name, streamer_id, custom_message, filtered_games)
+                            VALUES (:guild_id, :channel_id, :streamer_name, :streamer_id, :custom_message, :filtered_games)
                         '''), {
                             'guild_id': guild_id,
                             'channel_id': target_channel.id if target_channel and hasattr(target_channel, 'id') else 0,
                             'streamer_name': streamer.lower(),
                             'streamer_id': streamer_id,
-                            'custom_message': message
+                            'custom_message': message,
+                            'filtered_games': filtered_games
                         })
                         connection.commit()
                     
@@ -450,6 +491,10 @@ def setup_twitch_notifications(bot):
                         channel_display = "Unknown"
                     embed.add_field(name="Channel", value=channel_display, inline=True)
                     embed.add_field(name="Streamer", value=f"[{streamer}](https://twitch.tv/{streamer})", inline=True)
+                    if filtered_games:
+                        embed.add_field(name="Game Filters", value=filtered_games.replace(',', ', '), inline=False)
+                    else:
+                        embed.add_field(name="Game Filters", value="All games", inline=False)
                     if message:
                         embed.add_field(name="Custom Message", value=message, inline=False)
                     
@@ -530,7 +575,7 @@ def setup_twitch_notifications(bot):
             with app.app_context():
                 with db.engine.connect() as connection:
                     result = connection.execute(text('''
-                        SELECT streamer_name, channel_id, is_live, custom_message, paused
+                        SELECT streamer_name, channel_id, is_live, custom_message, paused, filtered_games
                         FROM twitch_streamers 
                         WHERE guild_id = :guild_id
                         ORDER BY streamer_name
@@ -554,7 +599,7 @@ def setup_twitch_notifications(bot):
             offline_streamers = []
             paused_streamers = []
             
-            for streamer_name, channel_id, is_live, custom_message, paused in streamers:
+            for streamer_name, channel_id, is_live, custom_message, paused, filtered_games in streamers:
                 channel = bot.get_channel(channel_id)
                 
                 # Determine status with pause indicators (only individual streamer pause)
@@ -571,6 +616,13 @@ def setup_twitch_notifications(bot):
                 streamer_info = base_info
                 if channel:
                     streamer_info += f" → {channel.mention}"
+                
+                # Add game filter information
+                if filtered_games:
+                    games_display = filtered_games.replace(',', ', ')
+                    streamer_info += f"\n   🎮 **Games:** {games_display}"
+                else:
+                    streamer_info += f"\n   🎮 **Games:** All games"
                 
                 # Categorize streamers (only individual pause matters)
                 if paused:

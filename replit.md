@@ -6,7 +6,18 @@ This project is a feature-rich Discord bot, built with Python and the discord.py
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
-## Recent Changes (September 16, 2025)
+## Recent Changes (September 21, 2025)
+✅ **COMPLETED:** Twitch game filtering system
+- Implemented comprehensive game filtering for Twitch stream notifications to reduce spam
+- Enhanced `/twitch add` command with optional `games` parameter for comma-separated game list  
+- Updated notification logic with intelligent game matching (exact match + substring matching)
+- Added filtered_games database column with safe migration for new installations
+- Enhanced `/twitch list` command to display game filters with smart formatting
+- Fixed critical notification bug preventing false positives from empty game names
+- Added robust edge case handling and detailed logging for game filter operations
+- **Current status:** Game filtering fully operational and production-ready
+
+## Previous Changes (September 16, 2025)
 ✅ **COMPLETED:** Welcome & goodbye message customization
 - Enhanced welcome messages with bold "Hey", member names, and waving emoji (👋)
 - Added bold formatting to "Welcome to RIVALZ MLB THE SHOW" text
@@ -37,6 +48,7 @@ The bot is built with Python 3.x using the discord.py library and deployed on Re
 - **Discord-Style Image Generation:** Advanced welcome image creation that mimics professional Discord designs, featuring specific layouts (800x400), high-quality circular avatars, dynamic text rendering, and PNG output optimization.
 - **Message Editing System:** Comprehensive bot message management with commands to edit regular messages (`!editmsg`), edit embed messages (`!editembed`), and delete bot messages (`!delmsg`). All commands include proper permission checks and error handling.
 - **Mass Notification System:** Admin-only commands for server-wide announcements with `!everyone` and `!here` commands, plus file sharing with mass notifications (`!sendfile_everyone`, `!sendfile_here`), including proper permission validation and error handling.
+- **Twitch Game Filtering System:** Advanced notification filtering that allows users to specify specific games for stream alerts, reducing notification spam. Features intelligent game matching with exact and substring matching, empty game detection, database schema safety with automatic migrations, and comprehensive edge case handling. Supports both individual streamer filtering and server-wide notification management.
 
 **Technical Implementations & System Design Choices:**
 - **Deployment:** Utilizes a multi-service architecture where a Flask web server (port 5000) acts as the primary process for HTTP health checks, with the Discord bot running as a background thread.
