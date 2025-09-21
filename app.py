@@ -186,12 +186,69 @@ async def start_discord_bot():
         logger.error(f"Failed to start Discord bot: {e}")
         update_bot_status('error')
 
-# Start Discord bot in background when app starts
+# Start Discord bot with supervision (auto-restart on failure)
 import asyncio
-def run_discord_bot():
-    asyncio.run(start_discord_bot())
+import time
+import threading
 
-bot_thread = Thread(target=run_discord_bot, daemon=True)
+# Global stop event for graceful shutdown
+stop_event = threading.Event()
+
+def run_discord_bot_supervised():
+    """Supervised Discord bot runner with automatic restart"""
+    restart_count = 0
+    max_restarts = 100
+    
+    while not stop_event.is_set() and restart_count < max_restarts:
+        try:
+            logger.info(f"🤖 Starting supervised Discord bot (attempt {restart_count + 1})")
+            update_bot_status('starting')
+            
+            # Run the Discord bot
+            result = asyncio.run(start_discord_bot())
+            
+            if result is True:
+                # Clean shutdown requested
+                logger.info("✅ Discord bot stopped cleanly")
+                update_bot_status('stopped')
+                break
+            else:
+                # Bot failed, prepare for restart
+                restart_count += 1
+                logger.error(f"💥 Discord bot failed (restart #{restart_count}/{max_restarts})")
+                update_bot_status('restarting')
+                
+                if restart_count >= max_restarts:
+                    logger.error("❌ Max restarts reached - stopping supervision")
+                    update_bot_status('failed')
+                    break
+                
+                # Progressive backoff delay
+                wait_time = min(10 + (restart_count * 2), 60)
+                logger.info(f"🔄 Restarting Discord bot in {wait_time}s...")
+                time.sleep(wait_time)
+                
+        except Exception as e:
+            restart_count += 1
+            logger.exception(f"💥 Discord bot supervisor error: {e}")
+            update_bot_status('error')
+            
+            if restart_count < max_restarts:
+                wait_time = min(10 + (restart_count * 2), 60)
+                logger.info(f"🔄 Supervisor restarting in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                logger.error("❌ Supervisor giving up after max failures")
+                break
+    
+    # If we exhausted all retries, force process restart
+    if restart_count >= max_restarts:
+        logger.error("🚨 CRITICAL: Forcing process restart due to persistent failures")
+        import os
+        os._exit(1)  # Force VM to restart the entire process
+
+# Start supervised bot in non-daemon thread (so Flask waits for it)
+bot_thread = Thread(target=run_discord_bot_supervised, daemon=False)
 bot_thread.start()
 
 # Update status to show we're ready
