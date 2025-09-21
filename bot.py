@@ -352,6 +352,21 @@ class DiscordBot(commands.Bot):
                 from datetime import datetime
                 self.last_heartbeat = datetime.utcnow()
                 
+                # Update health monitoring status for external monitoring
+                try:
+                    # Import from main module's globals if available
+                    import sys
+                    if 'main' in sys.modules:
+                        main_module = sys.modules['main']
+                        if hasattr(main_module, 'bot_status'):
+                            main_module.bot_status['status'] = 'connected'
+                            main_module.bot_status['guilds'] = len(self.guilds)
+                            main_module.bot_status['last_check'] = datetime.utcnow().isoformat()
+                            main_module.bot_status['discord_connected'] = True
+                except Exception as e:
+                    # Fallback - direct update without logging
+                    pass
+                
                 # Log status every 5 minutes
                 if hasattr(self, '_last_status_log'):
                     time_since_log = (self.last_heartbeat - self._last_status_log).total_seconds()
@@ -362,7 +377,7 @@ class DiscordBot(commands.Bot):
                     self._last_status_log = self.last_heartbeat
                     logger.info("💓 Heartbeat system initialized")
                 
-                # Update status
+                # Update status (fallback)
                 bot_status['connected'] = not self.is_closed()
                 bot_status['guilds'] = len(self.guilds)
                 

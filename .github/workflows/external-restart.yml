@@ -1,0 +1,48 @@
+name: External Bot Restart
+on:
+  repository_dispatch:
+    types: [bot-restart]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for restart'
+        required: false
+        default: 'Manual restart'
+
+permissions:
+  contents: write
+
+jobs:
+  restart-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Log restart trigger
+        run: |
+          echo "🔄 Bot restart triggered at $(date)"
+          echo "📋 Reason: ${{ github.event.inputs.reason || 'External monitoring detected downtime' }}"
+          echo "🤖 Event type: ${{ github.event.action }}"
+          
+      - name: Create restart commit
+        run: |
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Create a restart marker file with timestamp
+          echo "Restart triggered at $(date)" >> .restart-log
+          echo "Trigger: ${{ github.event.inputs.reason || 'External monitoring detected downtime' }}" >> .restart-log
+          echo "---" >> .restart-log
+          
+          # Commit the change to trigger repl.deploy
+          git add .restart-log
+          git commit -m "🔄 External restart: ${{ github.event.inputs.reason || 'Bot downtime detected' }} [$(date -u +'%Y-%m-%d %H:%M:%S UTC')]"
+          git push
+          
+      - name: Notify completion
+        run: |
+          echo "✅ Restart commit pushed successfully"
+          echo "🎯 repl.deploy will automatically restart the bot"
+          echo "⏰ Expected restart time: 30-60 seconds"

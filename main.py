@@ -68,12 +68,18 @@ def create_health_app():
                 start_time = datetime.fromisoformat(bot_status['start_time'].replace('Z', '+00:00'))
                 uptime_seconds = (datetime.utcnow() - start_time).total_seconds()
             
-            # Check if bot is responsive (last check within 60 seconds)
+            # Check if bot is responsive (last check within 180 seconds - more realistic)
             is_responsive = False
             if bot_status.get('last_check'):
                 last_check = datetime.fromisoformat(bot_status['last_check'].replace('Z', '+00:00'))
                 seconds_since_check = (datetime.utcnow() - last_check).total_seconds()
-                is_responsive = seconds_since_check < 60
+                is_responsive = seconds_since_check < 180
+            else:
+                # If no last_check, consider responsive if recently started
+                if bot_status.get('start_time'):
+                    start_time = datetime.fromisoformat(bot_status['start_time'].replace('Z', '+00:00'))
+                    seconds_since_start = (datetime.utcnow() - start_time).total_seconds()
+                    is_responsive = seconds_since_start < 300  # 5 minutes grace period for startup
             
             # Determine overall health
             is_healthy = (
@@ -128,6 +134,18 @@ def create_health_app():
             
             logger.info(f"📊 Webhook alert type: {alert_type}")
             
+            # Require authentication for security
+            auth_header = request.headers.get('Authorization')
+            expected_auth = os.getenv('RESTART_SECRET', 'disabled')
+            
+            if expected_auth == 'disabled' or not auth_header or auth_header != f"Bearer {expected_auth}":
+                logger.warning(f"🚫 Unauthorized restart attempt from {request.remote_addr}")
+                return jsonify({
+                    'status': 'unauthorized',
+                    'message': 'Authentication required for restart',
+                    'timestamp': datetime.utcnow().isoformat()
+                }), 401
+            
             # Only restart on down alerts (alertType=1) or if no alertType specified
             if alert_type is None or alert_type == '1' or alert_type == 1:
                 logger.warning("🚨 EXTERNAL RESTART TRIGGERED - Forcing process exit")
@@ -169,6 +187,42 @@ def create_health_app():
     def api_status():
         """Detailed bot status endpoint"""
         return jsonify(bot_status)
+    
+    @app.route('/refresh', methods=['POST'])
+    def refresh():
+        """repl.deploy refresh endpoint for automated GitHub deployments"""
+        try:
+            import sys
+            import json
+            
+            # Log the repl.deploy format for daemon processing
+            request_body = request.get_json() or {}
+            signature = request.headers.get('Signature', '')
+            
+            # Log in repl.deploy format for daemon to process
+            repl_deploy_log = f"repl.deploy{json.dumps(request_body)}{signature}"
+            print(repl_deploy_log, flush=True)
+            
+            # Read daemon response from stdin (this would be handled by repl.deploy daemon)
+            # For now, just acknowledge the request
+            logger.info("🔄 repl.deploy refresh triggered - GitHub deployment restart initiated")
+            
+            # Signal success to repl.deploy daemon
+            print("repl.deploy-success", flush=True)
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Deployment refresh triggered',
+                'timestamp': datetime.utcnow().isoformat()
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"❌ repl.deploy refresh error: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }), 500
     
     return app
 

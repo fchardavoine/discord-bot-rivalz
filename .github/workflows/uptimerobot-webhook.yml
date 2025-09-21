@@ -1,0 +1,31 @@
+name: UptimeRobot Webhook Handler
+on:
+  push:
+    paths:
+      - '.github/workflows/uptimerobot-webhook.yml'  # Only trigger on workflow updates
+  workflow_dispatch:
+
+jobs:
+  setup-webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display webhook URL
+        run: |
+          echo "🔗 UptimeRobot Webhook URL:"
+          echo "https://api.github.com/repos/${{ github.repository }}/dispatches"
+          echo ""
+          echo "📋 Required headers:"
+          echo "Authorization: token YOUR_GITHUB_TOKEN"
+          echo "Accept: application/vnd.github.v3+json"
+          echo "Content-Type: application/json"
+          echo ""
+          echo "📦 POST body example:"
+          echo '{"event_type": "bot-restart"}'
+          echo ""
+          echo "🎯 To test manually:"
+          echo "curl -X POST \\"
+          echo "  -H \"Authorization: token YOUR_GITHUB_TOKEN\" \\"
+          echo "  -H \"Accept: application/vnd.github.v3+json\" \\"
+          echo "  -H \"Content-Type: application/json\" \\"
+          echo "  -d '{\"event_type\": \"bot-restart\"}' \\"
+          echo "  https://api.github.com/repos/${{ github.repository }}/dispatches"
