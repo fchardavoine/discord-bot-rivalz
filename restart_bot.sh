@@ -19,8 +19,8 @@ while [ $restart_count -lt $max_restarts ]; do
     # Record start time for failure rate calculation
     start_time=$(date +%s)
     
-    # Start the Python bot with repl.deploy daemon
-    ./repl.deploy --standalone python main.py
+    # Start the Python bot with repl.deploy daemon managing restarts
+    ./repl.deploy python main.py
     exit_code=$?
     
     # Record end time

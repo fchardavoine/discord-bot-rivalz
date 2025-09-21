@@ -213,25 +213,12 @@ def create_health_app():
             
             logger.info("🔄 repl.deploy refresh triggered - GitHub deployment restart initiated")
             
-            # Signal success to repl.deploy daemon
+            # Signal success to repl.deploy daemon (daemon will handle restart)
             print("repl.deploy-success", flush=True)
-            
-            # Schedule restart after sending response
-            def delayed_restart():
-                import time
-                import os
-                time.sleep(2)  # Give time for response to be sent
-                logger.info("🔄 Restarting process after repl.deploy refresh...")
-                os._exit(1)  # Exit with code 1 to trigger restart wrapper
-            
-            import threading
-            restart_thread = threading.Thread(target=delayed_restart)
-            restart_thread.daemon = True
-            restart_thread.start()
             
             return jsonify({
                 'status': 'success',
-                'message': 'Deployment refresh triggered - restarting process',
+                'message': 'Deployment refresh triggered - daemon will restart process',
                 'timestamp': datetime.utcnow().isoformat()
             }), 200
             
